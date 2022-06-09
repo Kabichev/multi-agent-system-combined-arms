@@ -4,48 +4,35 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import pettingzoo.magent.combined_arms_v6 as combined_arms
-import time
-import sys
+
+import agents
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--episodes', type=int, default=30)
-    parser.add_argument('--map-size', type=int, default=16)
-    parser.add_argument('--render',
-                        default=True,
-                        action=argparse.BooleanOptionalAction)
-    parser.add_argument('--minimap-mode',
+    parser.add_argument('-e', '--episodes', type=int, default=30)
+    parser.add_argument('-r',
+                        '--render',
                         default=False,
                         action=argparse.BooleanOptionalAction)
-    parser.add_argument('--extra-features',
+    parser.add_argument('-ms', '--env-map-size', type=int, default=16)
+    parser.add_argument('-mm',
+                        '--env-minimap-mode',
+                        default=False,
+                        action=argparse.BooleanOptionalAction)
+    parser.add_argument('-ef',
+                        '--env-extra-features',
                         default=False,
                         action=argparse.BooleanOptionalAction)
 
     return parser.parse_args()
 
 
-def stupid_policy(action):
-    return action
-
-
-def random_policy():
-    number_of_actions = env.action_space(agent).n
-    action = np.random.randint(number_of_actions)
-    return action
-
-
-MELEE_MOVE_UP, MELEE_MOVE_LEFT, MELEE_DO_NOTHING, MELEE_MOVE_RIGHT, MELEE_MOVE_DOWN, MELEE_ATTACK_UP, MELEE_ATTACK_LEFT, MELEE_ATTACK_RIGHT, MELEE_ATTACK_DOWN = range(
-    9)
-
-RANGED_MOVE_UP_UP, RANGED_MOVE_UP_LEFT, RANGED_MOVE_UP, RANGED_MOVE_UP_RIGHT, RANGED_MOVE_LEFT_LEFT, RANGED_MOVE_LEFT, RANGED_DO_NOTHING, RANGED_MOVE_RIGHT, RANGED_MOVE_RIGHT_RIGHT, RANGED_MOVE_LEFT_DOWN, RANGED_MOVE_DOWN, RANGED_MOVE_DOWN_RIGHT, RANGED_MOVE_DOWN_DOWN, RANGED_ATTACK_UP_UP, RANGED_ATTACK_UP_LEFT, RANGED_ATTACK_UP, RANGED_ATTACK_UP_RIGHT, RANGED_ATTACK_LEFT_LEFT, RANGED_ATTACK_LEFT, RANGED_ATTACK_RIGHT, RANGED_ATTACK_RIGHT_RIGHT, RANGED_ATTACK_LEFT_DOWN, RANGED_ATTACK_DOWN, RANGED_ATTACK_DOWN_RIGHT, RANGED_ATTACK_DOWN_DOWN = range(
-    25)
-
 if __name__ == '__main__':
     args = get_args()
-    env = combined_arms.env(map_size=args.map_size,
-                            minimap_mode=args.minimap_mode,
-                            extra_features=args.extra_features)
+    env = combined_arms.env(map_size=args.env_map_size,
+                            minimap_mode=args.env_minimap_mode,
+                            extra_features=args.env_extra_features)
     # print(f'action_spaces = {env.action_spaces}')
 
     list_of_results = []
@@ -66,28 +53,18 @@ if __name__ == '__main__':
         env.reset()
         episode_length = 0
 
+        _agents = {
+            name: agents.DoNothingAgent(args, name)
+            if 'blue' not in name else agents.GreedyAgent(args, name)
+            for name in env.agents
+        }
+
         for agent in env.agent_iter():
             observation, reward, done, info = env.last()
 
-            print(f'observation.shape = {observation.shape}')
-            for i in range(observation.shape[-1]):
-                print(f'Channel {i}: {observation[:, :, i]}')
-            print(f'REWARD: {reward}')
-            print(f'agent: {agent}')
+            _agents[agent].see(observation, reward, done, info)
 
-            if done:
-                action = None  # necessary
-
-            elif 'red' in agent:
-                if 'mele' in agent:  #? RED in the render
-                    action = stupid_policy(MELEE_DO_NOTHING)
-                else:  # ranged #? BLUE in the render
-                    action = stupid_policy(RANGED_MOVE_RIGHT_RIGHT)
-            else:  # blue
-                if 'mele' in agent:  #? GREEN in the render
-                    action = stupid_policy(MELEE_MOVE_LEFT)
-                else:  # ranged #? BLACK in the render
-                    action = stupid_policy(RANGED_DO_NOTHING)
+            action = _agents[agent].action()
             print(f'action: {action}')
 
             if not done:
@@ -96,7 +73,7 @@ if __name__ == '__main__':
 
             if args.render:
                 env.render()
-                input('\nPress enter to continue...')
+                input('\nPress enter to continue...')  #! just for debug
 
         #Making a dataframe of remaining agents
         redAgentsMeleeAlive = [
