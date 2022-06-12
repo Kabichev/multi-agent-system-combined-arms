@@ -7,30 +7,38 @@ import numpy as np
 import numpy.typing as npt
 
 
+class Action(enum.Enum):
+    pass
+
+
+class MeleeAction(Action):
+    (MOVE_UP, MOVE_LEFT, DO_NOTHING, MOVE_RIGHT, MOVE_DOWN, ATTACK_UP,
+     ATTACK_LEFT, ATTACK_RIGHT, ATTACK_DOWN) = range(9)
+
+
+class RangedAction(Action):
+    (MOVE_UP_UP, MOVE_UP_LEFT, MOVE_UP, MOVE_UP_RIGHT, MOVE_LEFT_LEFT,
+     MOVE_LEFT, DO_NOTHING, MOVE_RIGHT, MOVE_RIGHT_RIGHT, MOVE_DOWN_LEFT,
+     MOVE_DOWN, MOVE_DOWN_RIGHT, MOVE_DOWN_DOWN, ATTACK_UP_UP, ATTACK_UP_LEFT,
+     ATTACK_UP, ATTACK_UP_RIGHT, ATTACK_LEFT_LEFT, ATTACK_LEFT, ATTACK_RIGHT,
+     ATTACK_RIGHT_RIGHT, ATTACK_DOWN_LEFT, ATTACK_DOWN, ATTACK_DOWN_RIGHT,
+     RANGED_ATTACK_DOWN_DOWN) = range(25)
+
+
+class Type(enum.Enum):
+
+    MELEE = 1, MeleeAction
+    RANGED = 2, RangedAction
+
+    def __init__(self, range: int, action: Action):
+        enum.Enum.__init__(self)
+        self.range = range
+        self.action = action
+
+
 class Agent(abc.ABC):
 
-    class Type(enum.Enum):
-        MELEE = 9, 1
-        RANGED = 25, 2
-
-        def __init__(self, number_of_actions: int, range: int):
-            enum.Enum.__init__(self)
-            self.number_of_actions = number_of_actions
-            self.range = range
-
-    class Action(enum.Enum):
-        (MELEE_MOVE_UP, MELEE_MOVE_LEFT, MELEE_DO_NOTHING, MELEE_MOVE_RIGHT,
-         MELEE_MOVE_DOWN, MELEE_ATTACK_UP, MELEE_ATTACK_LEFT,
-         MELEE_ATTACK_RIGHT, MELEE_ATTACK_DOWN) = range(9)
-        (RANGED_MOVE_UP_UP, RANGED_MOVE_UP_LEFT, RANGED_MOVE_UP,
-         RANGED_MOVE_UP_RIGHT, RANGED_MOVE_LEFT_LEFT, RANGED_MOVE_LEFT,
-         RANGED_DO_NOTHING, RANGED_MOVE_RIGHT, RANGED_MOVE_RIGHT_RIGHT,
-         RANGED_MOVE_DOWN_LEFT, RANGED_MOVE_DOWN, RANGED_MOVE_DOWN_RIGHT,
-         RANGED_MOVE_DOWN_DOWN, RANGED_ATTACK_UP_UP, RANGED_ATTACK_UP_LEFT,
-         RANGED_ATTACK_UP, RANGED_ATTACK_UP_RIGHT, RANGED_ATTACK_LEFT_LEFT,
-         RANGED_ATTACK_LEFT, RANGED_ATTACK_RIGHT, RANGED_ATTACK_RIGHT_RIGHT,
-         RANGED_ATTACK_DOWN_LEFT, RANGED_ATTACK_DOWN, RANGED_ATTACK_DOWN_RIGHT,
-         RANGED_ATTACK_DOWN_DOWN) = range(25)
+    RELATIVE_POSITION = np.array([6, 6])
 
     def __init__(self, args: argparse.Namespace, name: str):
         self.args = args
@@ -40,23 +48,27 @@ class Agent(abc.ABC):
         agent_type = match.group(2).upper()
         # petting zoo environment doesn't return bluemelee_X but bluemele_X
         if agent_type.endswith('LE'): agent_type += 'E'
-        self.type = Agent.Type[agent_type]
+        self.type = Type[agent_type]
         self.number = int(match.group(3))
 
-        self.observation = None
-        self.reward = None
-        self.done = None
-        self.info = None
+        self.observation: npt.NDArray = None
+        self.hp = 1.
+        self.last_reward = .0
+        self.done = False
+        self.info: dict = None
+        self.last_action: Action = None
 
     def see(self, observation: npt.NDArray, reward: int, done: bool,
             info: dict):
         self.observation = observation
-        self.reward = reward
+        self.hp = observation[self.RELATIVE_POSITION[0],
+                              self.RELATIVE_POSITION[1], 2]
+        self.last_reward = reward
         self.done = done
         self.info = info
 
     @abc.abstractmethod
-    def action(self) -> int:
+    def action(self) -> Action:
         """
         Should be runned after function `Agent.see(...)` and based on 
         the observation return the index of one of the actions
@@ -66,25 +78,29 @@ class Agent(abc.ABC):
 
 class RandomAgent(Agent):
 
-    def action(self) -> int:
+    def action(self) -> Action:
         if self.done:  # necessary
-            return None
-        return np.random.randint(self.type.number_of_actions)
+            self.last_action = None
+        else:
+            self.last_action = np.random.choice(list(self.type.action))
+        print(f'Chosen action: {self.last_action.name} ({self.last_action.value})')
+        return self.last_action
 
 
 class DoNothingAgent(Agent):
 
-    def action(self) -> int:
+    def action(self) -> Action:
         if self.done:  # necessary
-            return None
-        return Agent.Action.RANGED_DO_NOTHING.value if self.type == Agent.Type.RANGED else Agent.Action.MELEE_DO_NOTHING.value
+            self.last_action = None
+        else:
+            self.last_action = self.type.action['DO_NOTHING']
+        print(f'Chosen action: {self.last_action.name} ({self.last_action.value})')
+        return self.last_action
 
 
 class GreedyAgent(Agent):
 
-    POSITION = np.array([6, 6])
-
-    def action(self) -> int:
+    def action(self) -> Action:
         """
         If there is any enemy in the `observation` then: if it is in range attacks it, otherwise moves towards it
 
@@ -95,32 +111,33 @@ class GreedyAgent(Agent):
         """
         if self.done:  # necessary
             print(f'agent {self.name} died, returning None as action')
+            self.last_action = None
             return None
 
-        print(f'observation.shape = {self.observation.shape}')
-        for i in range(self.observation.shape[-1]):
-            print(f'Channel {i}:\n{self.observation[:, :, i]}')
-        print(f'REWARD: {self.reward}')
-        print(f'agent name: {self.name}')
+        # print(f'observation.shape = {self.observation.shape}')
+        # for i in range(self.observation.shape[-1]):
+        #     print(f'Channel {i}:\n{self.observation[:, :, i]}')
+        # print(f'REWARD: {self.reward}')
+        # print(f'agent name: {self.name}')
 
         enemy_presence_index = 4 if self.args.env_minimap_mode else 3
         enemy_positions = np.array(
             np.where(self.observation[:, :, enemy_presence_index] == 1))
-        print(f'enemy positions:\n{enemy_positions}')
+        # print(f'enemy positions:\n{enemy_positions}')
 
-        agent_action = self.type.name
         if enemy_positions.any():
-            closest_enemy_index = closest_index(self.POSITION, enemy_positions)
+            closest_enemy_index = closest_index(self.RELATIVE_POSITION,
+                                                enemy_positions)
             closest_enemy_position = enemy_positions[:, closest_enemy_index]
-            print(f'closest enemy is in position: {closest_enemy_position}')
+            # print(f'closest enemy is in position: {closest_enemy_position}')
 
-            closest_enemy_relative = closest_enemy_position - self.POSITION
-            print(f'closest enemy relative position: {closest_enemy_relative}')
+            closest_enemy_relative = closest_enemy_position - self.RELATIVE_POSITION
+            # print(f'closest enemy relative position: {closest_enemy_relative}')
 
-            agent_action += '_ATTACK' if self._can_attack(
-                closest_enemy_position) else '_MOVE'
+            agent_action = 'ATTACK' if self._can_attack(
+                closest_enemy_position) else 'MOVE'
             x, y = closest_enemy_relative
-            if self.type == Agent.Type.MELEE:
+            if self.type == Type.MELEE:
                 if abs(x) > abs(y):
                     if x < 0:
                         agent_action += '_UP'
@@ -146,21 +163,22 @@ class GreedyAgent(Agent):
                     agent_action += '_RIGHT' * (1 if x != 0 else min(
                         y, self.type.range))
         else:  # TODO do something when there is no enemies on the observation view
-            agent_action += '_MOVE'
-            print('No enemies found, returning ', end='')
+            agent_action = 'MOVE'
+            # print('No enemies found, returning ', end='')
             if self.team == 'red':
                 agent_action += '_RIGHT' * self.type.range
-                print('right because I\'m on the red team')
+                # print('right because I\'m on the red team')
             else:
                 agent_action += '_LEFT' * self.type.range
-                print('left because I\'m on the blue team')
+                # print('left because I\'m on the blue team')
 
-        _action = Agent.Action[agent_action]
-        print(f'Chosen action: {agent_action} ({_action.value})')
-        return _action.value
+        self.last_action = self.type.action[agent_action]
+        print(f'Chosen action: {self.last_action.name} ({self.last_action.value})')
+        return self.last_action
 
     def _can_attack(self, enemy_position: npt.NDArray):
-        distance = euclidean_distance(self.POSITION, enemy_position)[0]
+        distance = euclidean_distance(self.RELATIVE_POSITION,
+                                      enemy_position)[0]
         return distance <= self.type.range
 
 
@@ -218,4 +236,4 @@ if __name__ == '__main__':
     agent = RandomAgent('blueranged_2')
     print(f'actions = {agent.action()}')
 
-    print(f'AgentActions attributes = {Agent.Action.RANGED_MOVE_UP.value}')
+    print(f'AgentActions attributes = {Agent.Type.RangedAction.MOVE_UP.value}')

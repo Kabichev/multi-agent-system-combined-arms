@@ -4,7 +4,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import pettingzoo.magent.combined_arms_v6 as combined_arms
-import pettingzoo.utils.env as pettingzoo_env
 
 import agents
 
@@ -51,9 +50,9 @@ def reset_env(parallel_env: combined_arms.magent_parallel_env):
     all_agents, rewards, dones, infos = {}, {}, {}, {}
     for agent_name in parallel_env.agents:
         if 'blue' in agent_name:
-            all_agents[agent_name] = agents.RandomAgent(args, agent_name)
+            all_agents[agent_name] = agents.DoNothingAgent(args, agent_name)
         else:
-            all_agents[agent_name] = agents.RandomAgent(args, agent_name)
+            all_agents[agent_name] = agents.GreedyAgent(args, agent_name)
         rewards[agent_name] = 0
         dones[agent_name] = False
         infos[agent_name] = {}
@@ -66,6 +65,52 @@ def render_env(args: argparse.Namespace,
     if args.render:
         parallel_env.render()
         input('\nPress enter to continue...')  #! just for debug
+
+
+def print_state(parallel_env: combined_arms.magent_parallel_env,
+                all_agents: dict):
+    # necessary to swap because its rotated compared to what is shown when rendered
+    state = parallel_env.state().swapaxes(0, 1)
+    lines_map = ['Map:']
+    for row in range(state.shape[0]):
+        line = []
+        for column in range(state.shape[1]):
+            if state[row, column, 0] == 1:  # obstacle map
+                line += ['X']
+            elif state[row, column, 1] == 1:  # red melee (RED on map)
+                line += ['R']
+            elif state[row, column, 3] == 1:  # red ranged (BLUE on map)
+                line += ['B']
+            elif state[row, column, 5] == 1:  # blue melee (GREEN on map)
+                line += ['g']
+            elif state[row, column, 7] == 1:  # blue ranged (BLACK on map)
+                line += ['b']
+            else:
+                line += ['.']
+        lines_map += [' '.join(line)]
+    lines_map_max = len(max(lines_map, key=len))
+
+    data_frame = pd.DataFrame(
+        columns=['Name', 'HP', 'Last Reward', 'Done', 'Last Action'],
+        data=[[
+            agent.name, agent.hp, agent.last_reward, agent.done,
+            agent.last_action.name if agent.last_action else None
+        ] for agent in all_agents.values()])
+    lines_info = ['All agents info:']
+    lines_info += data_frame.to_string().split('\n')
+    lines_info_max = len(max(lines_info, key=len))
+
+    def _line(index: int, _list: list, line_size: int):
+        line = ''
+        if index < len(_list):
+            line = _list[index]
+        return f'{line:{" "}<{line_size}}'
+
+    for index in range(max(len(lines_info), len(lines_map))):
+        line = _line(index, lines_map, lines_map_max)
+        line += ' ' * 10
+        line += _line(index, lines_info, lines_info_max)
+        print(line)
 
 
 def update_episodes_info(df: pd.DataFrame, agents_alive: list):
@@ -169,6 +214,7 @@ if __name__ == '__main__':
         all_agents, observations, rewards, dones, infos = reset_env(
             parallel_env)
 
+        print_state(parallel_env, all_agents)
         render_env(args, parallel_env)
 
         while steps < args.env_max_cycles:
@@ -179,7 +225,7 @@ if __name__ == '__main__':
                     agent_name], rewards[agent_name], dones[agent_name], infos[
                         agent_name]
                 all_agents[agent_name].see(observation, reward, done, info)
-                actions[agent_name] = all_agents[agent_name].action()
+                actions[agent_name] = all_agents[agent_name].action().value
             print(f'all actions: {actions}')
             observations, rewards, dones, infos = parallel_env.step(actions)
             steps += 1
@@ -189,6 +235,7 @@ if __name__ == '__main__':
 
             agents_alive = parallel_env.agents
 
+            print_state(parallel_env, all_agents)
             render_env(args, parallel_env)
 
         df_aliveAtEnd = update_episodes_info(df_aliveAtEnd, agents_alive)
