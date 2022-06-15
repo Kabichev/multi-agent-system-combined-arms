@@ -8,7 +8,9 @@ import numpy.typing as npt
 
 
 class Action(enum.Enum):
-    pass
+
+    def __str__(self):
+        return f'{self.name} ({self.value})'
 
 
 class MeleeAction(Action):
@@ -22,7 +24,7 @@ class RangedAction(Action):
      MOVE_DOWN, MOVE_DOWN_RIGHT, MOVE_DOWN_DOWN, ATTACK_UP_UP, ATTACK_UP_LEFT,
      ATTACK_UP, ATTACK_UP_RIGHT, ATTACK_LEFT_LEFT, ATTACK_LEFT, ATTACK_RIGHT,
      ATTACK_RIGHT_RIGHT, ATTACK_DOWN_LEFT, ATTACK_DOWN, ATTACK_DOWN_RIGHT,
-     RANGED_ATTACK_DOWN_DOWN) = range(25)
+     ATTACK_DOWN_DOWN) = range(25)
 
 
 class Type(enum.Enum):
@@ -58,8 +60,33 @@ class Agent(abc.ABC):
         self.info: dict = None
         self.last_action: Action = None
 
+        # channels
+        if self.type == Type.MELEE:
+            self.enemy_channels = [5, 7]
+        else:
+            self.enemy_channels = [3, 5]
+        if self.args.env_minimap_mode:
+            self.enemy_channels += 1
+
+    def letter(self):
+        if self.team == 'red':
+            if self.type == Type.MELEE:
+                return 'R'
+            else:
+                return 'B'
+        else:
+            if self.type == Type.MELEE:
+                return 'g'
+            else:
+                return 'b'
+
     def see(self, observation: npt.NDArray, reward: int, done: bool,
             info: dict):
+        if observation is None and reward is None and done is None and info is None:  # is dead
+            self.hp = 0.0
+            self.done = True
+            return
+
         self.observation = observation
         self.hp = observation[self.RELATIVE_POSITION[0],
                               self.RELATIVE_POSITION[1], 2]
@@ -83,7 +110,6 @@ class RandomAgent(Agent):
             self.last_action = None
         else:
             self.last_action = np.random.choice(list(self.type.action))
-        print(f'Chosen action: {self.last_action.name} ({self.last_action.value})')
         return self.last_action
 
 
@@ -94,7 +120,6 @@ class DoNothingAgent(Agent):
             self.last_action = None
         else:
             self.last_action = self.type.action['DO_NOTHING']
-        print(f'Chosen action: {self.last_action.name} ({self.last_action.value})')
         return self.last_action
 
 
@@ -110,25 +135,28 @@ class GreedyAgent(Agent):
         - Doesn't "see" if there is something where he wants to go, if there is he doesn't move
         """
         if self.done:  # necessary
-            print(f'agent {self.name} died, returning None as action')
             self.last_action = None
             return None
 
-        # print(f'observation.shape = {self.observation.shape}')
-        # for i in range(self.observation.shape[-1]):
-        #     print(f'Channel {i}:\n{self.observation[:, :, i]}')
-        # print(f'REWARD: {self.reward}')
         # print(f'agent name: {self.name}')
+        # for i in range(self.observation.shape[-1]):
+        #     if i >= 1 and i <= 8:
+        #         print(f'Channel {i}:\n{self.observation[:, :, i]}')
 
-        enemy_presence_index = 4 if self.args.env_minimap_mode else 3
-        enemy_positions = np.array(
-            np.where(self.observation[:, :, enemy_presence_index] == 1))
-        # print(f'enemy positions:\n{enemy_positions}')
+        all_enemy_positions = np.empty((2, 0), dtype=int)
+        for enemy_channel in self.enemy_channels:
+            enemy_positions = np.array(
+                np.where(self.observation[:, :, enemy_channel] == 1))
+            if enemy_positions.any():
+                all_enemy_positions = np.concatenate(
+                    (all_enemy_positions, enemy_positions), axis=1)
+        # print(f'all_enemy_positions = {all_enemy_positions}')
 
-        if enemy_positions.any():
+        if all_enemy_positions.any():
             closest_enemy_index = closest_index(self.RELATIVE_POSITION,
-                                                enemy_positions)
-            closest_enemy_position = enemy_positions[:, closest_enemy_index]
+                                                all_enemy_positions)
+            closest_enemy_position = all_enemy_positions[:,
+                                                         closest_enemy_index]
             # print(f'closest enemy is in position: {closest_enemy_position}')
 
             closest_enemy_relative = closest_enemy_position - self.RELATIVE_POSITION
@@ -173,7 +201,6 @@ class GreedyAgent(Agent):
                 # print('left because I\'m on the blue team')
 
         self.last_action = self.type.action[agent_action]
-        print(f'Chosen action: {self.last_action.name} ({self.last_action.value})')
         return self.last_action
 
     def _can_attack(self, enemy_position: npt.NDArray):

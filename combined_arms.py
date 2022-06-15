@@ -1,4 +1,5 @@
 import argparse
+import typing
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -50,7 +51,7 @@ def reset_env(parallel_env: combined_arms.magent_parallel_env):
     all_agents, rewards, dones, infos = {}, {}, {}, {}
     for agent_name in parallel_env.agents:
         if 'blue' in agent_name:
-            all_agents[agent_name] = agents.DoNothingAgent(args, agent_name)
+            all_agents[agent_name] = agents.RandomAgent(args, agent_name)
         else:
             all_agents[agent_name] = agents.GreedyAgent(args, agent_name)
         rewards[agent_name] = 0
@@ -61,14 +62,16 @@ def reset_env(parallel_env: combined_arms.magent_parallel_env):
 
 
 def render_env(args: argparse.Namespace,
-               parallel_env: combined_arms.magent_parallel_env):
+               parallel_env: combined_arms.magent_parallel_env,
+               all_agents: typing.Dict[str, agents.Agent]):
     if args.render:
         parallel_env.render()
+        print_state(parallel_env, all_agents)
         input('\nPress enter to continue...')  #! just for debug
 
 
 def print_state(parallel_env: combined_arms.magent_parallel_env,
-                all_agents: dict):
+                all_agents: typing.Dict[str, agents.Agent]):
     # necessary to swap because its rotated compared to what is shown when rendered
     state = parallel_env.state().swapaxes(0, 1)
     lines_map = ['Map:']
@@ -88,28 +91,26 @@ def print_state(parallel_env: combined_arms.magent_parallel_env,
             else:
                 line += ['.']
         lines_map += [' '.join(line)]
-    lines_map_max = len(max(lines_map, key=len))
 
     data_frame = pd.DataFrame(
-        columns=['Name', 'HP', 'Last Reward', 'Done', 'Last Action'],
+        columns=['Name', 'HP', 'Done', 'Last Reward', 'Last Action'],
         data=[[
-            agent.name, agent.hp, agent.last_reward, agent.done,
-            agent.last_action.name if agent.last_action else None
+            f'{agent.name} ({agent.letter()})', agent.hp, agent.done,
+            agent.last_reward, agent.last_action
         ] for agent in all_agents.values()])
     lines_info = ['All agents info:']
     lines_info += data_frame.to_string().split('\n')
-    lines_info_max = len(max(lines_info, key=len))
 
-    def _line(index: int, _list: list, line_size: int):
+    def _line(index: int, _list: list):
         line = ''
         if index < len(_list):
             line = _list[index]
-        return f'{line:{" "}<{line_size}}'
+        return f'{line:{" "}<{len(max(_list, key=len))}}'
 
     for index in range(max(len(lines_info), len(lines_map))):
-        line = _line(index, lines_map, lines_map_max)
+        line = _line(index, lines_map)
         line += ' ' * 10
-        line += _line(index, lines_info, lines_info_max)
+        line += _line(index, lines_info)
         print(line)
 
 
@@ -214,29 +215,31 @@ if __name__ == '__main__':
         all_agents, observations, rewards, dones, infos = reset_env(
             parallel_env)
 
-        print_state(parallel_env, all_agents)
-        render_env(args, parallel_env)
+        render_env(args, parallel_env, all_agents)
 
         while steps < args.env_max_cycles:
-            print(f'running step {steps + 1}')
+            print(f'running step {steps}')
+
             actions = {}
-            for agent_name in parallel_env.agents:
-                observation, reward, done, info = observations[
-                    agent_name], rewards[agent_name], dones[agent_name], infos[
-                        agent_name]
-                all_agents[agent_name].see(observation, reward, done, info)
-                actions[agent_name] = all_agents[agent_name].action().value
+            for agent_name in all_agents:  # parallel_env.agents:
+                all_agents[agent_name].see(observations.get(agent_name),
+                                           rewards.get(agent_name),
+                                           dones.get(agent_name),
+                                           infos.get(agent_name))
+                agent_action = all_agents[agent_name].action()
+                # print(f'agent {agent_name} chose action {agent_action}')
+                action_index = agent_action.value if agent_action else None
+                actions[agent_name] = action_index
             print(f'all actions: {actions}')
             observations, rewards, dones, infos = parallel_env.step(actions)
             steps += 1
-
-            if np.array(list(dones.values())).all():
+            
+            if np.fromiter(dones.values(), dtype=bool).all():
                 break
 
             agents_alive = parallel_env.agents
 
-            print_state(parallel_env, all_agents)
-            render_env(args, parallel_env)
+            render_env(args, parallel_env, all_agents)
 
         df_aliveAtEnd = update_episodes_info(df_aliveAtEnd, agents_alive)
 
