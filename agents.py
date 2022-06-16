@@ -219,10 +219,11 @@ class ClingyGreedyAgent(Agent):
 
     def action(self) -> Action:
         """
-        If there is any enemy in the `observation` then: if it is in range attacks it, otherwise moves towards it ONLY
-        ONE step, regardless of range, in order to stay close to its teammates.
+        Agent's move actions are limited to 1 square, regardless of range, in order to stay close to its teammates.
 
-        If no enemies are in the `observation` but an ally is: if the ally is close move forward, otherwise move
+        If there is any enemy in the `observation` then: if it is in range attacks it, otherwise moves towards it
+
+        If no enemies are in the `observation` but an ally is: if the ally is close moves forward, otherwise moves
         towards it
         """
         if self.done:  # necessary
@@ -251,6 +252,7 @@ class ClingyGreedyAgent(Agent):
             # print(f'closest enemy relative position: {closest_enemy_relative}')
 
             if self._can_attack(closest_enemy_position):
+                # if it can attack, it proceeds the same as the greedy agent
                 agent_action = 'ATTACK'
                 x, y = closest_enemy_relative
                 if self.type == Type.MELEE:
@@ -279,6 +281,7 @@ class ClingyGreedyAgent(Agent):
                         agent_action += '_RIGHT' * (1 if x != 0 else min(
                             y, self.type.range))
             else:
+                # if it can't attack, it moves only 1 square towards the enemy, diagonals allowed for ranged agents
                 agent_action = 'MOVE'
                 x, y = closest_enemy_relative
                 if self.type == Type.MELEE:
@@ -305,39 +308,39 @@ class ClingyGreedyAgent(Agent):
 
         # Clingy Half
         else:
+            # check for the closest allies the same it did for enemies
             all_ally_positions = np.empty((2, 0), dtype=int)
             for ally_channel in self.ally_channels:
                 ally_positions = np.array(
                     np.where(self.observation[:, :, ally_channel] == 1))
                 for n in range(ally_positions.shape[1]):
+                    # need to remove the ally at position (6,6), because it's the agent itself
                     if ally_positions[0][n] == 6 and ally_positions[1][n] == 6:
                         ally_positions = np.delete(ally_positions, n, axis=1)
                         break
                 if ally_positions.any():
                     all_ally_positions = np.concatenate(
                         (all_ally_positions, ally_positions), axis=1)
-                # print(f'Ally positions: {all_ally_positions}')
 
             if all_ally_positions.any():
+                # locate the closest ally
                 # print("I see an ally", self.name)
                 closest_ally_index = closest_index(self.RELATIVE_POSITION,
                                                    all_ally_positions)
                 closest_ally_position = all_ally_positions[:, closest_ally_index]
-                # print(f'closest ally is in position: {closest_ally_position}')
 
                 closest_ally_relative = closest_ally_position - self.RELATIVE_POSITION
-                # print(f'closest ally relative position: {closest_ally_relative}')
                 agent_action = 'MOVE'
-                if self._is_not_alone(closest_ally_position):
-                    # print("Not Alone", self.name)
-                    # print('No allies found, returning ', end='')
+                if self._is_not_alone(closest_ally_position): # True if the closest ally is 1 square away
+                    # move forward 1 square
                     if self.team == 'red':
-                        agent_action += '_RIGHT' * self.type.range
+                        agent_action += '_RIGHT'
                         # print('right because I\'m on the red team')
                     else:
-                        agent_action += '_LEFT' * self.type.range
+                        agent_action += '_LEFT'
                         # print('left because I\'m on the blue team')
                 else:
+                    # closest ally is more than 1 square away, move towards it, diagonals allowed for ranged agents
                     # print("Alone", self.name)
                     x, y = closest_ally_relative
                     if self.type == Type.MELEE:
@@ -365,7 +368,8 @@ class ClingyGreedyAgent(Agent):
                         elif y > 0:
                             agent_action += '_RIGHT' * (1 if x != 0 else min(
                                 y, self.type.range))
-            else:  # TODO do something when there is no enemies on the observation view
+            else:
+                # move forward
                 agent_action = 'MOVE'
                 if self.team == 'red':
                     agent_action += '_RIGHT' * self.type.range
@@ -378,6 +382,9 @@ class ClingyGreedyAgent(Agent):
         return self.last_action
 
     def _is_not_alone(self, ally_position: npt.NDArray):
+        """
+        Returns True if the closest ally in only 1 square away from the agent (diagonals included), False otherwise.
+        """
         distance = euclidean_distance(self.RELATIVE_POSITION,
                                       ally_position)[0]
         print("Distance is", distance)
