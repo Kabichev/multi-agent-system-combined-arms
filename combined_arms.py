@@ -114,37 +114,6 @@ def print_state(parallel_env: combined_arms.magent_parallel_env,
         print(line)
 
 
-def update_episodes_info(df: pd.DataFrame, agents_alive: list):
-    redAgentsMeleeAlive = []
-    blueAgentsMeleeAlive = []
-    redAgentsRangedAlive = []
-    blueAgentsRangedAlive = []
-    for agent_name in agents_alive:
-        if agent_name.startswith('redmelee'):
-            redAgentsMeleeAlive += [agent_name]
-        elif agent_name.startswith('bluemele'):
-            blueAgentsMeleeAlive += [agent_name]
-        elif agent_name.startswith('redranged'):
-            redAgentsRangedAlive += [agent_name]
-        elif agent_name.startswith('blueranged'):
-            blueAgentsRangedAlive += [agent_name]
-
-    blueAgentsMeleeAlive_n = len(blueAgentsMeleeAlive)
-    blueAgentsRangedAlive_n = len(blueAgentsRangedAlive)
-    redAgentsMeleeAlive_n = len(redAgentsMeleeAlive)
-    redAgentsRangedAlive_n = len(redAgentsRangedAlive)
-
-    redTotAlive = redAgentsMeleeAlive_n + redAgentsRangedAlive_n
-    blueTotAlive = blueAgentsMeleeAlive_n + blueAgentsRangedAlive_n
-
-    series_alive = pd.DataFrame([[
-        redAgentsRangedAlive_n, redAgentsMeleeAlive_n, redTotAlive,
-        blueAgentsRangedAlive_n, blueAgentsMeleeAlive_n, blueTotAlive
-    ]],
-                                columns=df.columns)
-    return pd.concat([df, series_alive], ignore_index=True)
-
-
 def plot_episodes_info(df: pd.DataFrame):
     x = [i for i in range(1, args.episodes + 1)]
 
@@ -156,6 +125,48 @@ def plot_episodes_info(df: pd.DataFrame):
     y_blue_melee = df["blue_melee_alive"].tolist()
     y_blue_tot = df["blue_tot_alive"].tolist()
 
+    #plt.plot(x,
+    #         y_red_range,
+    #         label="red_range",
+    #         color="#ed0287",
+    #         linestyle="dotted")
+    #plt.plot(x,
+    #         y_red_melee,
+    #         label="red_melee",
+    #         color="#ff9900",
+    #         linestyle="dashed")
+    #plt.plot(x, y_red_tot, label="red_tot", color="#ff0303")
+
+    #plt.plot(x,
+    #         y_blue_range,
+    #         label="blue_range",
+    #         color="#3691b3",
+     #        linestyle="dotted")
+    #plt.plot(x,
+    #         y_blue_melee,
+    #         label="blue_melee",
+    #         color="#0b1563",
+    #         linestyle="dashed")
+    #plt.plot(x, y_blue_tot, label="blue_tot", color="#0521f5")
+
+    #plt.xlabel('x - The episode')
+    #plt.ylabel('y - Number of agent left')
+    #plt.title("Different types of agents left in episodes")
+    #plt.legend()
+    #plt.show()
+
+    # NEW TOTAL AGENT OF EACH
+    plt.plot(x, y_red_tot, label="red_tot", color="#ff0303")
+
+    plt.plot(x, y_blue_tot, label="blue_tot", color="#0521f5")
+
+    plt.xlabel('x - The episode')
+    plt.ylabel('y - Number of agent left')
+    plt.title("Agents left in episodes")
+    plt.legend()
+    plt.show()
+
+    # NEW RANGED AND MELEE
     plt.plot(x,
              y_red_range,
              label="red_range",
@@ -166,7 +177,6 @@ def plot_episodes_info(df: pd.DataFrame):
              label="red_melee",
              color="#ff9900",
              linestyle="dashed")
-    plt.plot(x, y_red_tot, label="red_tot", color="#ff0303")
 
     plt.plot(x,
              y_blue_range,
@@ -178,11 +188,10 @@ def plot_episodes_info(df: pd.DataFrame):
              label="blue_melee",
              color="#0b1563",
              linestyle="dashed")
-    plt.plot(x, y_blue_tot, label="blue_tot", color="#0521f5")
 
     plt.xlabel('x - The episode')
-    plt.ylabel('y - Number of agent left')
-    plt.title("Different types of agents left in episodes")
+    plt.ylabel('y - Number of agent left of each type')
+    plt.title("Agents left in episodes")
     plt.legend()
     plt.show()
 
