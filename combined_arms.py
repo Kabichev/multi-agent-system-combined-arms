@@ -14,10 +14,10 @@ def get_args():
     parser.add_argument('-e', '--episodes', type=int, default=30)
     parser.add_argument('-r',
                         '--render',
-                        default=False,
+                        default=True,
                         action=argparse.BooleanOptionalAction)
 
-    parser.add_argument('-ms', '--env-map-size', type=int, default=16)
+    parser.add_argument('-ms', '--env-map-size', type=int, default=45)
     # defualt from environment
     parser.add_argument('-mm',
                         '--env-minimap-mode',
@@ -51,7 +51,7 @@ def reset_env(parallel_env: combined_arms.magent_parallel_env):
     all_agents, rewards, dones, infos = {}, {}, {}, {}
     for agent_name in parallel_env.agents:
         if 'blue' in agent_name:
-            all_agents[agent_name] = agents.RandomAgent(args, agent_name)
+            all_agents[agent_name] = agents.GreedyAgent(args, agent_name, True)
         else:
             all_agents[agent_name] = agents.GreedyAgent(args, agent_name)
         rewards[agent_name] = 0
@@ -66,8 +66,8 @@ def render_env(args: argparse.Namespace,
                all_agents: typing.Dict[str, agents.Agent]):
     if args.render:
         parallel_env.render()
-        print_state(parallel_env, all_agents)
-        input('\nPress enter to continue...')  #! just for debug
+        #print_state(parallel_env, all_agents)
+        #input('\nPress enter to continue...')  # ! just for debug
 
 
 def print_state(parallel_env: combined_arms.magent_parallel_env,
@@ -111,7 +111,8 @@ def print_state(parallel_env: combined_arms.magent_parallel_env,
         line = _line(index, lines_map)
         line += ' ' * 10
         line += _line(index, lines_info)
-        print(line)
+        #print(line)
+
 
 def update_episodes_info(df: pd.DataFrame, agents_alive: list):
     redAgentsMeleeAlive = []
@@ -140,7 +141,7 @@ def update_episodes_info(df: pd.DataFrame, agents_alive: list):
         redAgentsRangedAlive_n, redAgentsMeleeAlive_n, redTotAlive,
         blueAgentsRangedAlive_n, blueAgentsMeleeAlive_n, blueTotAlive
     ]],
-                                columns=df.columns)
+        columns=df.columns)
     return pd.concat([df, series_alive], ignore_index=True)
 
 
@@ -155,40 +156,19 @@ def plot_episodes_info(df: pd.DataFrame):
     y_blue_melee = df["blue_melee_alive"].tolist()
     y_blue_tot = df["blue_tot_alive"].tolist()
 
-    #plt.plot(x,
-    #         y_red_range,
-    #         label="red_range",
-    #         color="#ed0287",
-    #         linestyle="dotted")
-    #plt.plot(x,
-    #         y_red_melee,
-    #         label="red_melee",
-    #         color="#ff9900",
-    #         linestyle="dashed")
-    #plt.plot(x, y_red_tot, label="red_tot", color="#ff0303")
 
-    #plt.plot(x,
-    #         y_blue_range,
-    #         label="blue_range",
-    #         color="#3691b3",
-     #        linestyle="dotted")
-    #plt.plot(x,
-    #         y_blue_melee,
-    #         label="blue_melee",
-    #         color="#0b1563",
-    #         linestyle="dashed")
-    #plt.plot(x, y_blue_tot, label="blue_tot", color="#0521f5")
-
-    #plt.xlabel('x - The episode')
-    #plt.ylabel('y - Number of agent left')
-    #plt.title("Different types of agents left in episodes")
-    #plt.legend()
-    #plt.show()
 
     # NEW TOTAL AGENT OF EACH
     plt.plot(x, y_red_tot, label="red_tot", color="#ff0303")
 
+    red_mean = [np.mean(y_red_tot)] * 30
+    blue_mean = [np.mean(y_blue_tot)] * 30
     plt.plot(x, y_blue_tot, label="blue_tot", color="#0521f5")
+
+    plt.plot(x, red_mean, label='Mean = ' + str(round(red_mean[0], 2)), linestyle='--', color="#FF6666")
+    plt.plot(x, blue_mean, label='Mean = ' + str(round(blue_mean[0], 2)), linestyle='--', color="#3399FF")
+
+    #plt.legend()
 
     plt.xlabel('x - The episode')
     plt.ylabel('y - Number of agent left')
@@ -226,9 +206,24 @@ def plot_episodes_info(df: pd.DataFrame):
     plt.show()
 
 
+    plt.plot(stepsList,
+             color="#ed0287")
+
+    plt.xlabel('x - The episode')
+    plt.ylabel('y - Number of iterations')
+    plt.title("Iterations in each episode")
+    plt.legend()
+    plt.axis((0, 30, 0, 100))
+    y_mean = [np.mean(stepsList)] * 30
+    plt.plot(x, y_mean, label='Mean = ' + str(round(y_mean[0], 2)), linestyle='--')
+    plt.legend()
+
+    plt.show()
+
+
 if __name__ == '__main__':
     args = get_args()
-
+    stepsList = []
     parallel_env = combined_arms.parallel_env(
         map_size=args.env_map_size,
         minimap_mode=args.env_minimap_mode,
@@ -242,13 +237,14 @@ if __name__ == '__main__':
     agent_list = parallel_env.possible_agents
     agents_alive = agent_list
 
-    #Initilize Pandas dataFrames
+    # Initilize Pandas dataFrames
     df_aliveAtEnd = pd.DataFrame(columns=[
         "red_ranged_alive", "red_melee_alive", "red_tot_alive",
         "blue_ranged_alive", "blue_melee_alive", "blue_tot_alive"
     ])
 
     for episode in range(args.episodes):
+
         print(f'running episode {episode + 1}')
         steps = 0
         all_agents, observations, rewards, dones, infos = reset_env(
@@ -257,7 +253,7 @@ if __name__ == '__main__':
         render_env(args, parallel_env, all_agents)
 
         while steps < args.env_max_cycles:
-            print(f'running step {steps}')
+            #print(f'running step {steps}')
 
             actions = {}
             for agent_name in all_agents:  # parallel_env.agents:
@@ -269,20 +265,19 @@ if __name__ == '__main__':
                 # print(f'agent {agent_name} chose action {agent_action}')
                 action_index = agent_action.value if agent_action else None
                 actions[agent_name] = action_index
-            print(f'all actions: {actions}')
+            #print(f'all actions: {actions}')
             observations, rewards, dones, infos = parallel_env.step(actions)
             steps += 1
-            
+
             if np.fromiter(dones.values(), dtype=bool).all():
                 break
 
             agents_alive = parallel_env.agents
 
             render_env(args, parallel_env, all_agents)
-
+        stepsList.append(steps)
+        print(stepsList)
         df_aliveAtEnd = update_episodes_info(df_aliveAtEnd, agents_alive)
-        
-        
 
-    #Plotting the results from the dataframe
+    # Plotting the results from the dataframe
     plot_episodes_info(df_aliveAtEnd)
