@@ -42,7 +42,7 @@ class Agent(abc.ABC):
 
     RELATIVE_POSITION = np.array([6, 6])
 
-    def __init__(self, args: argparse.Namespace, name: str):
+    def __init__(self, args: argparse.Namespace, name: str, safe: bool = False):
         self.args = args
         self.name = name
         match = re.search(r'^(red|blue)(melee?|ranged)_(\d+)$', self.name)
@@ -60,20 +60,20 @@ class Agent(abc.ABC):
         self.info: dict = None
         self.last_action: Action = None
 
+        self.safe = safe
+        self.in_danger = False
+
         # channels
         if self.type == Type.MELEE:
+            self.ally_channels = [1, 3]
             self.enemy_channels = [5, 7]
         else:
+            self.ally_channels = [1, 7]
             self.enemy_channels = [3, 5]
         if self.args.env_minimap_mode:
             self.enemy_channels += 1
-
-        if self.type == Type.MELEE:
-            self.ally_channels = [1, 3]
-        else:
-            self.ally_channels = [1, 7]
-        if self.args.env_minimap_mode:
             self.ally_channels[1] += 1
+        self.agents_channels = self.ally_channels + self.enemy_channels
 
     def letter(self):
         if self.team == 'red':
@@ -95,8 +95,15 @@ class Agent(abc.ABC):
             return
 
         self.observation = observation
-        self.hp = observation[self.RELATIVE_POSITION[0],
+        current_hp = observation[self.RELATIVE_POSITION[0],
                               self.RELATIVE_POSITION[1], 2]
+
+        if current_hp < 0.3 and self.safe:
+            self.in_danger = True
+        else:
+            self.in_danger = False
+
+        self.hp = current_hp
         self.last_reward = reward
         self.done = done
         self.info = info
@@ -108,6 +115,54 @@ class Agent(abc.ABC):
         the observation return the index of one of the actions
         """
         raise NotImplementedError()
+
+    def _can_attack(self, enemy_position: npt.NDArray):
+        distance = euclidean_distance(self.RELATIVE_POSITION,
+                                      enemy_position)[0]
+        return distance <= self.type.range
+
+    def _is_too_close(self, enemy_position: npt.NDArray):
+        distance = euclidean_distance(self.RELATIVE_POSITION,
+                                      enemy_position)[0]
+        return distance <= 2
+
+    def _can_select_safe_action(self):
+        if self.team == 'red':
+            direction = -1
+            direction_str = '_LEFT'
+        else:
+            direction = 1
+            direction_str = '_RIGHT'
+        if self.type == Type.MELEE:
+            for agents_channel in self.agents_channels:
+                if self.observation[6, 6 + direction, agents_channel] == 1:
+                    return False, None
+            agent_action = 'MOVE' + direction_str
+            return True, self.type.action[agent_action]
+        else:
+            free_square = 3
+            for agents_channel in self.agents_channels:
+                if self.observation[6, 6 + direction * 2, agents_channel] == 0:
+                    free_square -= 1
+            if free_square:
+                agent_action = 'MOVE' + direction_str * 2
+                return True, self.type.action[agent_action]
+            for row in range(5, 8):
+                free_square = 3
+                for agents_channel in self.agents_channels:
+                    if self.observation[row, 6 + direction, agents_channel] == 0:
+                        free_square -= 1
+                if free_square:
+                    if row == 6:
+                        agent_action = 'MOVE'
+                    elif row < 6:
+                        agent_action = 'MOVE_UP'
+                    else:
+                        agent_action = 'MOVE_DOWN'
+                    agent_action += direction_str
+                    self.last_action = self.type.action[agent_action]
+                    return True, self.last_action
+            return False, None
 
 
 class RandomAgent(Agent):
@@ -168,6 +223,11 @@ class GreedyAgent(Agent):
             closest_enemy_relative = closest_enemy_position - self.RELATIVE_POSITION
             # print(f'closest enemy relative position: {closest_enemy_relative}')
 
+            if self.in_danger and self._is_too_close(closest_enemy_position):
+                a, self.last_action = self._can_select_safe_action()
+                if a:
+                    return self.last_action
+
             agent_action = 'ATTACK' if self._can_attack(
                 closest_enemy_position) else 'MOVE'
             x, y = closest_enemy_relative
@@ -209,11 +269,6 @@ class GreedyAgent(Agent):
         self.last_action = self.type.action[agent_action]
         return self.last_action
 
-    def _can_attack(self, enemy_position: npt.NDArray):
-        distance = euclidean_distance(self.RELATIVE_POSITION,
-                                      enemy_position)[0]
-        return distance <= self.type.range
-
 
 class ClingyGreedyAgent(Agent):
 
@@ -241,7 +296,6 @@ class ClingyGreedyAgent(Agent):
         # print(f'all_enemy_positions = {all_enemy_positions}')
 
         if all_enemy_positions.any():
-            print("I see an enemy", self.name)
             closest_enemy_index = closest_index(self.RELATIVE_POSITION,
                                                 all_enemy_positions)
             closest_enemy_position = all_enemy_positions[:,
@@ -250,6 +304,11 @@ class ClingyGreedyAgent(Agent):
 
             closest_enemy_relative = closest_enemy_position - self.RELATIVE_POSITION
             # print(f'closest enemy relative position: {closest_enemy_relative}')
+
+            if self.in_danger and self._is_too_close(closest_enemy_position):
+                a, self.last_action = self._can_select_safe_action()
+                if a:
+                    return self.last_action
 
             if self._can_attack(closest_enemy_position):
                 # if it can attack, it proceeds the same as the greedy agent
@@ -387,13 +446,7 @@ class ClingyGreedyAgent(Agent):
         """
         distance = euclidean_distance(self.RELATIVE_POSITION,
                                       ally_position)[0]
-        print("Distance is", distance)
         return distance < 2
-
-    def _can_attack(self, enemy_position: npt.NDArray):
-        distance = euclidean_distance(self.RELATIVE_POSITION,
-                                      enemy_position)[0]
-        return distance <= self.type.range
 
 
 def closest_index(point: npt.NDArray, points: npt.NDArray):
@@ -448,6 +501,7 @@ def euclidean_distance(point: npt.NDArray, points: npt.NDArray):
 
 if __name__ == '__main__':
     agent = RandomAgent('blueranged_2')
-    print(f'actions = {agent.action()}')
+    #print(f'actions = {agent.action()}')
 
-    print(f'AgentActions attributes = {Agent.Type.RangedAction.MOVE_UP.value}')
+    #print(f'AgentActions attributes = {Agent.Type.RangedAction.MOVE_UP.value}')
+
