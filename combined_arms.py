@@ -113,6 +113,36 @@ def print_state(parallel_env: combined_arms.magent_parallel_env,
         line += _line(index, lines_info)
         print(line)
 
+def update_episodes_info(df: pd.DataFrame, agents_alive: list):
+    redAgentsMeleeAlive = []
+    blueAgentsMeleeAlive = []
+    redAgentsRangedAlive = []
+    blueAgentsRangedAlive = []
+    for agent_name in agents_alive:
+        if agent_name.startswith('redmelee'):
+            redAgentsMeleeAlive += [agent_name]
+        elif agent_name.startswith('bluemele'):
+            blueAgentsMeleeAlive += [agent_name]
+        elif agent_name.startswith('redranged'):
+            redAgentsRangedAlive += [agent_name]
+        elif agent_name.startswith('blueranged'):
+            blueAgentsRangedAlive += [agent_name]
+
+    blueAgentsMeleeAlive_n = len(blueAgentsMeleeAlive)
+    blueAgentsRangedAlive_n = len(blueAgentsRangedAlive)
+    redAgentsMeleeAlive_n = len(redAgentsMeleeAlive)
+    redAgentsRangedAlive_n = len(redAgentsRangedAlive)
+
+    redTotAlive = redAgentsMeleeAlive_n + redAgentsRangedAlive_n
+    blueTotAlive = blueAgentsMeleeAlive_n + blueAgentsRangedAlive_n
+
+    series_alive = pd.DataFrame([[
+        redAgentsRangedAlive_n, redAgentsMeleeAlive_n, redTotAlive,
+        blueAgentsRangedAlive_n, blueAgentsMeleeAlive_n, blueTotAlive
+    ]],
+                                columns=df.columns)
+    return pd.concat([df, series_alive], ignore_index=True)
+
 
 def plot_episodes_info(df: pd.DataFrame):
     x = [i for i in range(1, args.episodes + 1)]
@@ -251,6 +281,8 @@ if __name__ == '__main__':
             render_env(args, parallel_env, all_agents)
 
         df_aliveAtEnd = update_episodes_info(df_aliveAtEnd, agents_alive)
+        
+        
 
     #Plotting the results from the dataframe
     plot_episodes_info(df_aliveAtEnd)
